@@ -2,30 +2,45 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 import json
 from sqlalchemy import Table, create_engine, Column, Integer, String, MetaData, Text,delete
-from database import links_table, Session, embeddings_table
+from database import links_table, Session, embeddings_table,domains_table
 from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy.exc import IntegrityError
-from config import DOMAIN_CATEGORIES,EMBEDDINGS_MODEL
+from config import DOMAIN_CATEGORIES,EMBEDDINGS_MODEL,DOMAIN_TRESHOLD
 from typing import List, Dict, Set
 
 # Load the model for generating embeddings
 model = SentenceTransformer(EMBEDDINGS_MODEL)
 
-def generate_domain_embeddings():
-    """Generate embeddings for each domain category"""
-    domain_embeddings = {}
+def generate_and_store_domain_embeddings():
+    """Generate embeddings for each domain category and store them in the database."""
+
     for domain, content in DOMAIN_CATEGORIES.items():
         # Create embedding from keywords and description
         text_to_embed = " ".join(content["keywords"]) + " " + content["description"]
-        domain_embeddings[domain] = model.encode(text_to_embed)
-    return domain_embeddings
+        embedding = model.encode(text_to_embed)
+        
+        # Convert embedding to a comma-separated string
+        embedding_text = ",".join(map(str, embedding))
+        
+        # Insert into the database
+        insert_data = {
+            'name': domain,
+            'keywords': " ".join(content["keywords"]),
+            'embedding': embedding_text
+        }
+        
+        with Session() as session:
+            session.execute(domains_table.insert().values(insert_data))
+        
+            session.commit()
+    print("Embeddings have been stored in the database.")
 
 def classify_content_domains(
     title_embedding: np.ndarray = None,
     keywords_embedding: np.ndarray = None,
     paragraphs_embedding: np.ndarray = None,
     h1_embedding: np.ndarray = None,
-    similarity_threshold: float = 0.33
+    similarity_threshold: float = DOMAIN_TRESHOLD
 ) -> Set[str]:
     """
     Classify content into domains based on embeddings
@@ -100,7 +115,6 @@ def update_content_domains():
                 session.rollback()
                 continue
 
-
 def get_embeddings_from_content(title, keywords, paragraphs, h1_tags):
     embeddings = {
         "title": model.encode(title) if title else None,
@@ -160,3 +174,6 @@ def delete_orphan_links():
             print(f"Link {link.url} deleted (ID {link.id}).")
 
         print(f"Cleanup finished. Total links deleted: {deleted_count}")
+
+
+generate_and_store_domain_embeddings()

@@ -1,19 +1,23 @@
 import json
 import numpy as np
+import time
 from sklearn.metrics.pairwise import cosine_similarity
-from sqlalchemy.orm import sessionmaker
 from database import links_table, Session, embeddings_table
-from embeddings import generate_domain_embeddings, classify_content_domains
-from config import EMBEDDINGS_MODEL
+from embeddings import generate_domain_embeddings
+from config import EMBEDDINGS_MODEL,DOMAIN_TRESHOLD
 from sentence_transformers import SentenceTransformer
-from typing import List, Dict, Set
+
 
 
 model = SentenceTransformer(EMBEDDINGS_MODEL)
 
-def search_similar_links(user_query, top_n=10, use_query_domains=True, similarity_threshold=0.33):
+def search_similar_links(user_query, top_n=10, use_query_domains=True):
+    start_time = time.time()  # Start timer
+
+    # Embedding du texte de la requête
     query_embedding = model.encode(user_query)
-    detected_domains = get_query_domains(user_query, similarity_threshold)
+    detected_domains = get_query_domains(user_query)
+    print(f"Domains detected in query: {detected_domains}\n")
 
     with Session() as session:
         query = session.query(
@@ -63,36 +67,53 @@ def search_similar_links(user_query, top_n=10, use_query_domains=True, similarit
         top_link_ids = [link[0] for link in top_links]
         closest_links = session.query(links_table).filter(links_table.c.id.in_(top_link_ids)).all()
 
-        formatted_results = []
+        # Formatting results
+        print("\n--- Similar Links Search Results ---\n")
         for _, similarity, result in top_links:
             result_domains = json.loads(result.domains) if result.domains else []
-            formatted_results.append({
-                "id": result.id,
-                "url": result.url,
-                "title": result.title,
-                "similarity_score": float(similarity),
-                "domains": result_domains,
-                "matched_query_domains": [d for d in result_domains if d in detected_domains] if detected_domains else []
-            })
+            matched_domains = [d for d in result_domains if d in detected_domains] if detected_domains else []
+
+            print(f"ID: {result.id}")
+            print(f"URL: {result.url}")
+            print(f"Title: {result.title}")
+            print(f"Similarity Score: {similarity:.4f}")
+            print(f"Domains: {result_domains}")
+            print(f"Matched Query Domains: {matched_domains}\n")
+            print("-" * 40)
+
+        end_time = time.time()  # End timer
+        response_time = end_time - start_time
+        print(f"\nQuery completed in {response_time:.2f} seconds")
 
         return {
-            "results": formatted_results,
+            "results": [
+                {
+                    "id": result.id,
+                    "url": result.url,
+                    "title": result.title,
+                    "similarity_score": float(similarity),
+                    "domains": result_domains,
+                    "matched_query_domains": matched_domains
+                }
+                for _, similarity, result in top_links
+            ],
             "detected_domains": detected_domains,
-            "total_results": len(formatted_results),
-            "query": user_query
+            "total_results": len(top_links),
+            "query": user_query,
+            "response_time": response_time
         }
 
-def get_query_domains(query, similarity_threshold=0.3):
+def get_query_domains(query):
     query_embedding = model.encode(query)
     domain_embeddings = generate_domain_embeddings()
 
     matching_domains = []
     for domain, domain_embedding in domain_embeddings.items():
         similarity = cosine_similarity([query_embedding], [domain_embedding])[0][0]
-        if similarity > similarity_threshold:
+        if similarity > DOMAIN_TRESHOLD:
             matching_domains.append((domain, similarity))
 
     matching_domains.sort(key=lambda x: x[1], reverse=True)
     return [domain for domain, _ in matching_domains]
 
-print(search_similar_links("Who is trump?",5))
+search_similar_links("I want to be an entrepreneur and open a restaurant",5,False)

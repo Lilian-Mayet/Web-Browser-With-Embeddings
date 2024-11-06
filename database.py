@@ -29,6 +29,17 @@ embeddings_table = Table(
     Column('domains', Text),
 )
 
+
+# Définition de la table 'Domains'
+domains_table = Table(
+    'Domains', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', String, nullable=False),
+    Column('keywords', Text),
+    Column('embedding', Text)
+)
+
+
 metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 

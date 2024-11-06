@@ -8,7 +8,8 @@ DOMAIN_CATEGORIES = {
         "keywords": [
             "programming", "software", "hardware", "AI", "artificial intelligence",
             "computer science", "coding", "tech news", "cybersecurity", "digital",
-            "machine learning", "data science", "cloud computing", "blockchain"
+            "machine learning", "data science", "cloud computing", "blockchain","python"
+            "java","C","C#"
         ],
         "description": "Technology, computing, and digital innovation"
     },
@@ -472,17 +473,8 @@ DOMAIN_CATEGORIES = {
     }
 }
 
+DOMAIN_TRESHOLD= 0.26
 
 SEED_URLS = [
-    "https://www.britannica.com",          
-    "https://www.buzzfeed.com",
-    "https://www.shopify.com",              # E-commerce platform
-    "https://www.codepen.io",               # Web development playground
-    "https://www.entrepreneur.com",         # Business
-    "https://www.investopedia.com",         # Finance and investment
-    "https://www.zooniverse.org", 
-    "https://www.bloomberg.com",            # Finance and news
-    "https://www.tripadvisor.com",          # Travel and reviews
-    "https://www.behance.net",              # Creative portfolio
-    "https://www.deviantart.com",
+
 ]
