@@ -1,7 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from sentence_transformers import SentenceTransformer
-from sqlalchemy import Table, create_engine, Column, Integer, String, MetaData, Text
+from sqlalchemy import Table, create_engine, Column, Integer, String, MetaData, Text,delete
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 import json
@@ -167,4 +167,6 @@ def search_similar_links(user_query, top_n=10):
         # Renvoyer les informations des liens les plus similaires
         return [{"id": link.id, "url": link.url} for link in closest_links]
 
-print(search_similar_links("How to eat healthy?",5))
+
+print(search_similar_links("I want to learn the wave management in LOL ",5))
+

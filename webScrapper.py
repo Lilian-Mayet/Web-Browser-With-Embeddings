@@ -259,79 +259,24 @@ def start_crawling(seed_urls, num_threads=5):
 
 # Exemples de liens pour démarrer le crawler
 seed_urls = [
-    # News & Information
-    "https://www.economist.com",
-    "https://www.ft.com",
-    "https://www.cbc.ca",
-    "https://www.npr.org",
 
-    # Technology & Science
-    "https://www.techcrunch.com",
-    "https://www.wired.com",
-    "https://www.popsci.com",
-    "https://www.theverge.com",
-
-    # Education & Knowledge
-    "https://www.academia.edu",
-    "https://www.futurelearn.com",
-    "https://www.openstax.org",
-    "https://www.saylor.org",
-
-    # Business & Finance
-    "https://www.investopedia.com",
-    "https://www.cnbc.com",
-    "https://www.ftadviser.com",
-    "https://www.fool.com",
-
-    # Social Media & Community
+           "https://www.britannica.com",          
+    "https://www.buzzfeed.com",
+        "https://www.shopify.com",              # E-commerce platform
+    "https://www.codepen.io",               # Web development playground
+    "https://www.entrepreneur.com",         # Business
+    "https://www.investopedia.com",         # Finance and investment
+    "https://www.zooniverse.org", 
+        "https://www.bloomberg.com",            # Finance and news
+    "https://www.tripadvisor.com",          # Travel and reviews
+    "https://www.behance.net",              # Creative portfolio
     "https://www.deviantart.com",
-    "https://www.vk.com",
-    "https://www.meetup.com",
-    "https://www.mix.com",
 
-    # Health & Lifestyle
-    "https://www.livestrong.com",
-    "https://www.everydayhealth.com",
-    "https://www.fitnessblender.com",
-    "https://www.shape.com",
 
-    # Shopping & Consumer
-    "https://www.target.com",
-    "https://www.bestbuy.com",
-    "https://www.zalando.com",
-    "https://www.nordstrom.com",
 
-    # Entertainment & Media
-    "https://www.crunchyroll.com",
-    "https://www.vulture.com",
-    "https://www.pitchfork.com",
-    "https://www.metacritic.com",
-
-    # Sports & Outdoors
-    "https://www.sports.yahoo.com",
-    "https://www.sportingnews.com",
-    "https://www.rei.com",
-    "https://www.mlb.com",
-
-    # Government & Non-Profit
-    "https://www.amnesty.org",
-    "https://www.redcross.org",
-    "https://www.oxfam.org",
-    "https://www.plan-international.org",
-
-    # Art & Culture
-    "https://www.artsy.net",
-    "https://www.metmuseum.org",
-    "https://www.smithsonianmag.com",
-    "https://www.tate.org.uk",
-
-    # Travel & Tourism
-    "https://www.lonelyplanet.com",
-    "https://www.tripadvisor.com",
-    "https://www.expedia.com",
-    "https://www.airbnb.com"
 
 ]
+
 
 random.shuffle(seed_urls)
 start_crawling(seed_urls, num_threads=7)
