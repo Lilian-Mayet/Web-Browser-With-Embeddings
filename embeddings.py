@@ -7,9 +7,10 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sqlalchemy.exc import IntegrityError
 from config import DOMAIN_CATEGORIES,EMBEDDINGS_MODEL,DOMAIN_TRESHOLD
 from typing import List, Dict, Set
+from model import MODEL
 
 # Load the model for generating embeddings
-model = SentenceTransformer(EMBEDDINGS_MODEL)
+model = MODEL
 
 def generate_and_store_domain_embeddings():
     """Generate embeddings for each domain category and store them in the database."""
@@ -41,14 +42,18 @@ def classify_content_domains(
     paragraphs_embedding: np.ndarray = None,
     h1_embedding: np.ndarray = None,
     similarity_threshold: float = DOMAIN_TRESHOLD
-) -> Set[str]:
+) -> Set[int]:
     """
-    Classify content into domains based on embeddings
-    Returns a set of matching domains
+    Classify content into domains based on embeddings from the database
+    Returns a set of matching domain IDs
     """
-    domain_embeddings = generate_domain_embeddings()
     matching_domains = set()
-    
+
+    # Récupère tous les embeddings de la table 'Domains' dans la base de données
+    with Session() as session:
+        domain_rows = session.query(domains_table).all()
+        domain_embeddings = {row.id: np.array([float(x) for x in row.embedding.split(",")]) for row in domain_rows}
+
     # Combine all available embeddings
     content_embeddings = []
     if title_embedding is not None:
@@ -67,17 +72,17 @@ def classify_content_domains(
     average_embedding = np.mean(content_embeddings, axis=0)
     
     # Compare with each domain
-    for domain, domain_embedding in domain_embeddings.items():
+    for domain_id, domain_embedding in domain_embeddings.items():
         similarity = cosine_similarity([average_embedding], [domain_embedding])[0][0]
         if similarity > similarity_threshold:
-            matching_domains.add(domain)
+            matching_domains.add(domain_id)  # Stocke l'ID du domaine
     
     return matching_domains
 
 def update_content_domains():
-    """Update domains for all entries in the embeddings table"""
+    """Update domains for all entries in the embeddings table with domain IDs."""
     with Session() as session:
-        # Get all embeddings
+        # Get all embeddings from embeddings_table
         results = session.query(embeddings_table).all()
         total = len(results)
         
@@ -90,23 +95,23 @@ def update_content_domains():
                 h1_embedding = json.loads(row.embedded_h1) if row.embedded_h1 else None
                 
                 # Classify content
-                domains = classify_content_domains(
+                domain_ids = classify_content_domains(
                     title_embedding,
                     keywords_embedding,
                     paragraphs_embedding,
                     h1_embedding
                 )
                 
-                # Update database using SQLAlchemy update statement
-                if domains:
+                # Update database with domain IDs
+                if domain_ids:
                     update_stmt = embeddings_table.update().where(
                         embeddings_table.c.link_id == row.link_id
                     ).values(
-                        domains=json.dumps(list(domains))
+                        domains=json.dumps(list(domain_ids))  # Enregistre les IDs des domaines
                     )
                     session.execute(update_stmt)
                     session.commit()
-                    print(f"Updated domains for ID {row.link_id} ({i}/{total}): {domains}")
+                    print(f"Updated domains for ID {row.link_id} ({i}/{total}): {domain_ids}")
                 else:
                     print(f"No matching domains found for ID {row.link_id} ({i}/{total})")
                     
@@ -114,6 +119,7 @@ def update_content_domains():
                 print(f"Error processing ID {row.link_id}: {str(e)}")
                 session.rollback()
                 continue
+
 
 def get_embeddings_from_content(title, keywords, paragraphs, h1_tags):
     embeddings = {
@@ -124,7 +130,7 @@ def get_embeddings_from_content(title, keywords, paragraphs, h1_tags):
     }
     return embeddings
 
-def generate_and_store_embeddings():
+def generate_and_store_webPages_embeddings():
     with Session() as session:
         existing_ids = {row[0] for row in session.query(embeddings_table.c.link_id).all()}
         links = session.query(links_table).filter(~links_table.c.id.in_(existing_ids)).all()
@@ -176,4 +182,3 @@ def delete_orphan_links():
         print(f"Cleanup finished. Total links deleted: {deleted_count}")
 
 
-generate_and_store_domain_embeddings()

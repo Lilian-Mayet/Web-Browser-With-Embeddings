@@ -2,21 +2,22 @@ import json
 import numpy as np
 import time
 from sklearn.metrics.pairwise import cosine_similarity
-from database import links_table, Session, embeddings_table
-from embeddings import generate_domain_embeddings
+from database import links_table, Session, embeddings_table,domains_table
+
 from config import EMBEDDINGS_MODEL,DOMAIN_TRESHOLD
 from sentence_transformers import SentenceTransformer
+from model import MODEL
+
+model = MODEL
 
 
-
-model = SentenceTransformer(EMBEDDINGS_MODEL)
 
 def search_similar_links(user_query, top_n=10, use_query_domains=True):
     start_time = time.time()  # Start timer
 
     # Embedding du texte de la requête
     query_embedding = model.encode(user_query)
-    detected_domains = get_query_domains(user_query)
+    detected_domains = get_query_domains(user_query)  # Liste des IDs de domaines détectés
     print(f"Domains detected in query: {detected_domains}\n")
 
     with Session() as session:
@@ -38,9 +39,10 @@ def search_similar_links(user_query, top_n=10, use_query_domains=True):
         similarities = []
 
         for result in results:
+            # Filtrage des liens en fonction des domaines détectés dans la requête
             if use_query_domains and detected_domains:
                 result_domains = json.loads(result.domains) if result.domains else []
-                if not any(domain in result_domains for domain in detected_domains):
+                if not any(domain_id in result_domains for domain_id in detected_domains):
                     continue
 
             embeddings = [
@@ -105,15 +107,19 @@ def search_similar_links(user_query, top_n=10, use_query_domains=True):
 
 def get_query_domains(query):
     query_embedding = model.encode(query)
-    domain_embeddings = generate_domain_embeddings()
 
     matching_domains = []
-    for domain, domain_embedding in domain_embeddings.items():
-        similarity = cosine_similarity([query_embedding], [domain_embedding])[0][0]
-        if similarity > DOMAIN_TRESHOLD:
-            matching_domains.append((domain, similarity))
+    with Session() as session:
+        # Récupération des embeddings des domaines depuis la base de données
+        domain_rows = session.query(domains_table).all()
+        for row in domain_rows:
+            domain_embedding = np.array([float(x) for x in row.embedding.split(",")])
+            similarity = cosine_similarity([query_embedding], [domain_embedding])[0][0]
+            if similarity > DOMAIN_TRESHOLD:
+                matching_domains.append((row.id, similarity))  # Stocker l'ID du domaine et la similarité
 
+    # Trier les domaines par similarité décroissante
     matching_domains.sort(key=lambda x: x[1], reverse=True)
-    return [domain for domain, _ in matching_domains]
+    return [domain_id for domain_id, _ in matching_domains]
 
-search_similar_links("I want to be an entrepreneur and open a restaurant",5,False)
+search_similar_links("I want to be an entrepreneur and open a restaurant",5,True)
