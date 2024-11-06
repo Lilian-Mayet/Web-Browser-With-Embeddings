@@ -1,46 +1,106 @@
-import requests
-from bs4 import BeautifulSoup
-from sentence_transformers import SentenceTransformer
-from sqlalchemy import Table, create_engine, Column, Integer, String, MetaData, Text,delete
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import IntegrityError
-import json
-from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from sentence_transformers import SentenceTransformer
+import json
+from sqlalchemy import Table, create_engine, Column, Integer, String, MetaData, Text,delete
+from database import links_table, Session, embeddings_table
+from sklearn.metrics.pairwise import cosine_similarity
+from sqlalchemy.exc import IntegrityError
+from config import DOMAIN_CATEGORIES,EMBEDDINGS_MODEL
+from typing import List, Dict, Set
 
-# Configuration de la base de données
-DATABASE_URL = "mysql+pymysql://root:@localhost/webbrowser"
-engine = create_engine(DATABASE_URL)
-metadata = MetaData()
+# Load the model for generating embeddings
+model = SentenceTransformer(EMBEDDINGS_MODEL)
 
-# Charger le modèle pour générer les embeddings
-model = SentenceTransformer('all-mpnet-base-v2')
+def generate_domain_embeddings():
+    """Generate embeddings for each domain category"""
+    domain_embeddings = {}
+    for domain, content in DOMAIN_CATEGORIES.items():
+        # Create embedding from keywords and description
+        text_to_embed = " ".join(content["keywords"]) + " " + content["description"]
+        domain_embeddings[domain] = model.encode(text_to_embed)
+    return domain_embeddings
 
-# Mise à jour de la table Embeddings avec de nouvelles colonnes
-embeddings_table = Table(
-    'Embeddings', metadata,
-    Column('id', Integer, primary_key=True, autoincrement=True),
-    Column('link_id', Integer, unique=True),
-    Column('embedded_title', Text),  # Embedding pour le titre
-    Column('embedded_keywords', Text),  # Embedding pour les mots-clés
-    Column('embedded_paragraphs', Text),  # Embedding pour les paragraphes importants
-    Column('embedded_h1', Text),  # Embedding pour les balises H1
-)
-metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
-session = Session()
+def classify_content_domains(
+    title_embedding: np.ndarray = None,
+    keywords_embedding: np.ndarray = None,
+    paragraphs_embedding: np.ndarray = None,
+    h1_embedding: np.ndarray = None,
+    similarity_threshold: float = 0.33
+) -> Set[str]:
+    """
+    Classify content into domains based on embeddings
+    Returns a set of matching domains
+    """
+    domain_embeddings = generate_domain_embeddings()
+    matching_domains = set()
+    
+    # Combine all available embeddings
+    content_embeddings = []
+    if title_embedding is not None:
+        content_embeddings.append(np.array(title_embedding))
+    if keywords_embedding is not None:
+        content_embeddings.append(np.array(keywords_embedding))
+    if paragraphs_embedding is not None:
+        content_embeddings.append(np.array(paragraphs_embedding))
+    if h1_embedding is not None:
+        content_embeddings.append(np.array(h1_embedding))
+    
+    if not content_embeddings:
+        return matching_domains
+    
+    # Calculate average embedding for content
+    average_embedding = np.mean(content_embeddings, axis=0)
+    
+    # Compare with each domain
+    for domain, domain_embedding in domain_embeddings.items():
+        similarity = cosine_similarity([average_embedding], [domain_embedding])[0][0]
+        if similarity > similarity_threshold:
+            matching_domains.add(domain)
+    
+    return matching_domains
 
-links_table = Table(
-    'Links', metadata,
-    Column('id', Integer, primary_key=True, autoincrement=True),
-    Column('url', String, unique=True),
-    Column('title', String),
-    Column('h1_tags', Text),
-    Column('important_paragraphs', Text),
-    Column('keywords', Text),
-)
+def update_content_domains():
+    """Update domains for all entries in the embeddings table"""
+    with Session() as session:
+        # Get all embeddings
+        results = session.query(embeddings_table).all()
+        total = len(results)
+        
+        for i, row in enumerate(results, 1):
+            try:
+                # Parse stored embeddings
+                title_embedding = json.loads(row.embedded_title) if row.embedded_title else None
+                keywords_embedding = json.loads(row.embedded_keywords) if row.embedded_keywords else None
+                paragraphs_embedding = json.loads(row.embedded_paragraphs) if row.embedded_paragraphs else None
+                h1_embedding = json.loads(row.embedded_h1) if row.embedded_h1 else None
+                
+                # Classify content
+                domains = classify_content_domains(
+                    title_embedding,
+                    keywords_embedding,
+                    paragraphs_embedding,
+                    h1_embedding
+                )
+                
+                # Update database using SQLAlchemy update statement
+                if domains:
+                    update_stmt = embeddings_table.update().where(
+                        embeddings_table.c.link_id == row.link_id
+                    ).values(
+                        domains=json.dumps(list(domains))
+                    )
+                    session.execute(update_stmt)
+                    session.commit()
+                    print(f"Updated domains for ID {row.link_id} ({i}/{total}): {domains}")
+                else:
+                    print(f"No matching domains found for ID {row.link_id} ({i}/{total})")
+                    
+            except Exception as e:
+                print(f"Error processing ID {row.link_id}: {str(e)}")
+                session.rollback()
+                continue
 
-# Fonction pour récupérer le contenu et générer les embeddings spécifiques
+
 def get_embeddings_from_content(title, keywords, paragraphs, h1_tags):
     embeddings = {
         "title": model.encode(title) if title else None,
@@ -50,38 +110,28 @@ def get_embeddings_from_content(title, keywords, paragraphs, h1_tags):
     }
     return embeddings
 
-# Extraction des liens de la table Links et génération des embeddings
 def generate_and_store_embeddings():
     with Session() as session:
-        # Récupérer les IDs déjà présents dans Embeddings
         existing_ids = {row[0] for row in session.query(embeddings_table.c.link_id).all()}
-        
-        # Récupérer tous les liens et filtrer ceux qui ne sont pas dans Embeddings
         links = session.query(links_table).filter(~links_table.c.id.in_(existing_ids)).all()
-        
         total_links = len(links)
         completed = 0
-        
+
         for link in links:
-            # Récupérer chaque élément de contenu
             title = link.title
             keywords = link.keywords
             paragraphs = link.important_paragraphs
             h1_tags = link.h1_tags
-            
-            # Générer les embeddings pour chaque partie
+
             embeddings = get_embeddings_from_content(title, keywords, paragraphs, h1_tags)
-            
-            # Vérifie que chaque embedding est présent sans évaluer les tableaux Numpy directement
+
             if any(embedding is not None for embedding in embeddings.values()):
                 try:
-                    # Conversion des embeddings en chaîne JSON pour chaque élément
                     embedding_title = json.dumps(embeddings["title"].tolist()) if embeddings["title"] is not None else None
                     embedding_keywords = json.dumps(embeddings["keywords"].tolist()) if embeddings["keywords"] is not None else None
                     embedding_paragraphs = json.dumps(embeddings["paragraphs"].tolist()) if embeddings["paragraphs"] is not None else None
                     embedding_h1 = json.dumps(embeddings["h1"].tolist()) if embeddings["h1"] is not None else None
-                    
-                    # Insérer dans la table Embeddings
+
                     stmt = embeddings_table.insert().values(
                         link_id=link.id,
                         embedded_title=embedding_title,
@@ -92,81 +142,21 @@ def generate_and_store_embeddings():
                     session.execute(stmt)
                     session.commit()
                     completed += 1
-                    print(f"ID {link.id} ajouté. Total complété : {completed}/{total_links}. Restants : {total_links - completed}")
+                    print(f"ID {link.id} added. Total completed: {completed}/{total_links}. Remaining: {total_links - completed}")
                 except IntegrityError:
                     session.rollback()
-                    print(f"Le lien avec ID {link.id} existe déjà dans la table Embeddings.")
-
-
+                    print(f"The link with ID {link.id} already exists in the Embeddings table.")
 
 def delete_orphan_links():
-    # Récupérer tous les link_id présents dans Embeddings
-    existing_link_ids = {row[0] for row in session.query(embeddings_table.c.link_id).all()}
-    
-    # Sélectionner les liens dans Links qui n'ont pas de correspondance dans Embeddings
-    orphan_links = session.query(links_table).filter(~links_table.c.id.in_(existing_link_ids)).all()
-    
-    # Supprimer les liens orphelins
-    deleted_count = 0
-    for link in orphan_links:
-        stmt = delete(links_table).where(links_table.c.id == link.id)
-        session.execute(stmt)
-        session.commit()
-        deleted_count += 1
-        print(f"Lien {link.url} supprimé (ID {link.id}).")
-
-    print(f"Nettoyage terminé. Total de liens supprimés : {deleted_count}")
-
-def search_similar_links(user_query, top_n=10):
-    # Calculer l'embedding pour la recherche utilisateur
-    query_embedding = model.encode(user_query)
-    
-    # Récupérer tous les embeddings stockés dans la base de données
     with Session() as session:
-        results = session.query(
-            embeddings_table.c.link_id,
-            embeddings_table.c.embedded_title,
-            embeddings_table.c.embedded_keywords,
-            embeddings_table.c.embedded_paragraphs,
-            embeddings_table.c.embedded_h1
-        ).all()
-        
-        # Liste pour stocker les similitudes et les IDs des liens
-        similarities = []
-        
-        for result in results:
-            link_id = result.link_id
-            embeddings = [
-                json.loads(result.embedded_title) if result.embedded_title else None,
-                json.loads(result.embedded_keywords) if result.embedded_keywords else None,
-                json.loads(result.embedded_paragraphs) if result.embedded_paragraphs else None,
-                json.loads(result.embedded_h1) if result.embedded_h1 else None,
-            ]
-            
-            # Calcul de la similarité cosinus pour chaque embedding existant
-            similarities_for_link = []
-            for embedding in embeddings:
-                if embedding is not None:
-                    similarity = cosine_similarity(
-                        [query_embedding], [np.array(embedding)]
-                    )[0][0]
-                    similarities_for_link.append(similarity)
-            
-            # Moyenne de la similarité pour ce lien (ignorer les valeurs None)
-            if similarities_for_link:
-                avg_similarity = np.mean(similarities_for_link)
-                similarities.append((link_id, avg_similarity))
-        
-        # Trier les liens par similarité décroissante et prendre les top_n plus proches
-        top_links = sorted(similarities, key=lambda x: x[1], reverse=True)[:top_n]
-        
-        # Récupérer les informations des liens les plus proches
-        top_link_ids = [link[0] for link in top_links]
-        closest_links = session.query(links_table).filter(links_table.c.id.in_(top_link_ids)).all()
-        
-        # Renvoyer les informations des liens les plus similaires
-        return [{"id": link.id, "url": link.url} for link in closest_links]
+        existing_link_ids = {row[0] for row in session.query(embeddings_table.c.link_id).all()}
+        orphan_links = session.query(links_table).filter(~links_table.c.id.in_(existing_link_ids)).all()
+        deleted_count = 0
+        for link in orphan_links:
+            stmt = delete(links_table).where(links_table.c.id == link.id)
+            session.execute(stmt)
+            session.commit()
+            deleted_count += 1
+            print(f"Link {link.url} deleted (ID {link.id}).")
 
-
-print(search_similar_links("I want to learn the wave management in LOL ",5))
-
+        print(f"Cleanup finished. Total links deleted: {deleted_count}")
