@@ -5,7 +5,7 @@ import time
 from sqlalchemy.exc import IntegrityError
 import threading
 import queue
-
+from config import SEED_URLS
 from database import add_links_to_db, get_random_link_from_db, links_table,Session
 
 def fetch_links(url):
@@ -72,7 +72,7 @@ def worker(url_queue, visited_urls):
                 pass
         url_queue.task_done()
 
-def start_crawling(seed_urls, num_threads=5):
+def start_crawling(seed_urls = SEED_URLS, num_threads=5):
     url_queue = queue.Queue()
     visited_urls = set()
 
@@ -89,3 +89,5 @@ def start_crawling(seed_urls, num_threads=5):
 
     for thread in threads:
         thread.join()
+
+
