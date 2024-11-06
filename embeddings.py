@@ -182,3 +182,4 @@ def delete_orphan_links():
         print(f"Cleanup finished. Total links deleted: {deleted_count}")
 
 
+update_content_domains()

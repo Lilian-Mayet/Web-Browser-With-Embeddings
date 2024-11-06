@@ -42,7 +42,8 @@ def search_similar_links(user_query, top_n=10, use_query_domains=True):
             # Filtrage des liens en fonction des domaines détectés dans la requête
             if use_query_domains and detected_domains:
                 result_domains = json.loads(result.domains) if result.domains else []
-                if not any(domain_id in result_domains for domain_id in detected_domains):
+                # Vérifie si au moins un domaine est commun entre result_domains et detected_domains
+                if not set(result_domains).intersection(detected_domains):
                     continue
 
             embeddings = [
@@ -122,4 +123,4 @@ def get_query_domains(query):
     matching_domains.sort(key=lambda x: x[1], reverse=True)
     return [domain_id for domain_id, _ in matching_domains]
 
-search_similar_links("I want to be an entrepreneur and open a restaurant",5,True)
+search_similar_links("I want to buy a new car",5)
