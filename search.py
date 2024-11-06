@@ -123,4 +123,4 @@ def get_query_domains(query):
     matching_domains.sort(key=lambda x: x[1], reverse=True)
     return [domain_id for domain_id, _ in matching_domains]
 
-search_similar_links("I want to buy a new car",5)
+search_similar_links("I have some leftovers carrots, what can i cook with them?",5)
